@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#FAF7F0">
+<title>Coloring Book</title>
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #FAF7F0;
+    --edge: #E9E3D6;
+    --ink: #4D4740;
+    --btn: #FFFFFF;
+    --c: min(46px, 10vw);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  *, *::before, *::after { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--paper);
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    font-family: "Nunito", "Trebuchet MS", system-ui, sans-serif;
+    color: var(--ink);
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0 0 auto;
+    height: env(safe-area-inset-top, 0px);
+    background: var(--paper);
+    z-index: 10;
+  }
+
+  .app {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto auto;
+    grid-template-areas: "pics" "stage" "colors" "tools";
+    gap: 6px;
+    padding: 6px 10px 8px;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+  }
+  button:focus-visible { outline: 3px solid #3F8EF0; outline-offset: 3px; }
+
+  /* picture picker */
+  .pics {
+    grid-area: pics;
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+  }
+  .pic {
+    width: min(54px, 14.6vw);
+    aspect-ratio: 1;
+    border-radius: 16px;
+    background: var(--btn);
+    border: 2px solid var(--edge);
+    padding: 4px;
+    transition: transform .15s ease, border-color .15s ease;
+  }
+  .pic svg { width: 100%; height: 100%; display: block; }
+  .pic[aria-pressed="true"] {
+    border-color: var(--ink);
+    transform: translateY(-2px);
+  }
+  .pic:active { transform: scale(.94); }
+
+  /* paper */
+  .stage {
+    grid-area: stage;
+    container-type: size;
+    display: grid;
+    place-items: center;
+    min-height: 0;
+    min-width: 0;
+  }
+  .paper {
+    position: relative;
+    width: min(100cqw, 75cqh);
+    aspect-ratio: 3 / 4;
+    background: var(--paper);
+    border: 2px solid var(--edge);
+    border-radius: 22px;
+    overflow: hidden;
+  }
+  .paper canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #outline { pointer-events: none; }
+  #paint { touch-action: none; }
+
+  /* colors */
+  .colors {
+    grid-area: colors;
+    display: flex;
+    justify-content: center;
+    gap: min(10px, 1.8vw);
+    max-width: 460px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 4px 0;
+  }
+  .swatch {
+    width: var(--c);
+    height: var(--c);
+    border-radius: 50%;
+    background: var(--col);
+    border: 0;
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,.10);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .swatch:active { transform: scale(.9); }
+  .swatch[aria-pressed="true"] {
+    transform: scale(1.1);
+    box-shadow: inset 0 -4px 0 rgba(0,0,0,.10), 0 0 0 3px var(--paper), 0 0 0 5px var(--ink);
+  }
+
+  /* tools */
+  .tools {
+    grid-area: tools;
+    display: flex;
+    justify-content: center;
+    gap: 14px;
+  }
+  .tool {
+    width: 68px;
+    height: 48px;
+    border-radius: 18px;
+    background: var(--btn);
+    border: 2px solid var(--edge);
+    display: grid;
+    place-items: center;
+    transition: transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .tool svg { width: 30px; height: 30px; }
+  .tool:active { transform: scale(.92); }
+  .tool[aria-pressed="true"] { border-color: var(--ink); }
+  .tool.sure {
+    background: #FFE3DF;
+    border-color: #F0443F;
+    animation: wiggle .35s ease 2;
+  }
+  @keyframes wiggle {
+    0%, 100% { transform: rotate(0); }
+    25% { transform: rotate(-7deg); }
+    75% { transform: rotate(7deg); }
+  }
+
+  /* feedback */
+  .flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 20;
+  }
+  .flash.go { animation: flash .45s ease-out; }
+  @keyframes flash { 0% { opacity: .9; } 100% { opacity: 0; } }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+    transform: translate(-50%, 20px);
+    background: var(--ink);
+    color: #fff;
+    border-radius: 999px;
+    padding: 10px 18px 10px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 800;
+    font-size: 18px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+    z-index: 30;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast svg { width: 22px; height: 22px; }
+
+  .sheet {
+    position: fixed;
+    inset: 0;
+    background: rgba(250,247,240,.96);
+    z-index: 40;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: calc(20px + env(safe-area-inset-top, 0px)) 20px calc(20px + env(safe-area-inset-bottom, 0px));
+    text-align: center;
+  }
+  .sheet.open { display: flex; }
+  .sheet img {
+    width: min(100%, 70vh);
+    border-radius: 24px;
+    border: 2px solid var(--edge);
+    -webkit-touch-callout: default;
+    user-select: auto;
+    -webkit-user-select: auto;
+  }
+  .sheet p { margin: 0; font-size: 18px; font-weight: 700; max-width: 22em; }
+  .sheet .close {
+    width: 64px;
+    height: 56px;
+    border-radius: 20px;
+    background: var(--btn);
+    border: 2px solid var(--edge);
+    display: grid;
+    place-items: center;
+  }
+  .sheet .close svg { width: 30px; height: 30px; }
+
+  /* landscape phones: picture picker left, colors and tools right */
+  @media (orientation: landscape) and (max-height: 560px) {
+    .app {
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      grid-template-rows: minmax(0, 1fr);
+      grid-template-areas: "pics stage side";
+      gap: 12px;
+      padding: 10px 14px;
+    }
+    .pics { flex-direction: column; justify-content: center; }
+    .pic { width: 52px; }
+    .side { grid-area: side; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+    .colors {
+      display: grid;
+      grid-template-columns: repeat(2, var(--cl));
+      gap: 12px;
+      justify-content: center;
+      width: auto;
+      --cl: 50px;
+    }
+    .swatch { width: 50px; height: 50px; }
+    .tools { flex-direction: row; gap: 8px; }
+    .tool { width: 56px; height: 50px; }
+    .toast { bottom: 24px; }
+  }
+  @media (orientation: landscape) and (max-height: 560px) {
+    .colors, .tools { grid-area: auto; }
+  }
+  .side { display: contents; }
+  @media (orientation: landscape) and (max-height: 560px) { .side { display: flex; } }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="pics" id="pics" role="group" aria-label="Pick a picture"></div>
+
+  <div class="stage">
+    <div class="paper">
+      <canvas id="paint" width="900" height="1200" aria-label="Coloring page. Draw with your finger."></canvas>
+      <canvas id="outline" width="900" height="1200"></canvas>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="colors" id="colors" role="group" aria-label="Colors"></div>
+    <div class="tools">
+      <button class="tool" id="eraser" aria-label="Eraser" aria-pressed="false">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <g transform="rotate(-35 20 20)">
+            <rect x="5" y="12" width="30" height="17" rx="5" fill="#F7A8C4"/>
+            <path d="M5 17a5 5 0 0 1 5-5h9v17h-9a5 5 0 0 1-5-5z" fill="#8FC7FF"/>
+          </g>
+          <path d="M8 35h26" stroke="#CFC8BC" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button class="tool" id="save" aria-label="Save picture">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <path d="M13 11l2.2-3.5h9.6L27 11h5a4 4 0 0 1 4 4v14a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V15a4 4 0 0 1 4-4z" fill="#8FC7FF"/>
+          <circle cx="20" cy="22" r="7.5" fill="#fff"/>
+          <circle cx="20" cy="22" r="4.2" fill="#3F8EF0"/>
+          <circle cx="31" cy="16" r="1.6" fill="#fff"/>
+        </svg>
+      </button>
+      <button class="tool" id="clear" aria-label="Start over">
+        <svg viewBox="0 0 40 40" aria-hidden="true">
+          <rect x="7" y="9" width="26" height="4.5" rx="2.2" fill="#B9B1A3"/>
+          <rect x="15" y="5" width="10" height="5" rx="2" fill="#B9B1A3"/>
+          <path d="M10 15h20l-1.6 17a3 3 0 0 1-3 2.7H14.6a3 3 0 0 1-3-2.7z" fill="#D9D3C8"/>
+          <path d="M16 20v10M20 20v10M24 20v10" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="flash" id="flash"></div>
+<div class="toast" id="toast" role="status">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#4CC35B"/><path d="M6.5 12.5l3.8 3.8 7.2-7.6" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span>Saved!</span>
+</div>
+
+<div class="sheet" id="sheet" role="dialog" aria-label="Your picture">
+  <img id="sheetImg" alt="Your colored picture">
+  <p>Press and hold the picture to save it.</p>
+  <button class="close" id="sheetClose" aria-label="Close">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19" stroke="#4D4740" stroke-width="3" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- pictures (800 x 800 line drawings) ---------- */
+  var PICTURES = [
+    { name: "Cat", body: "<path d=\"M150 310 Q105 160 140 92 Q160 66 195 84 Q265 118 318 160 Q375 146 432 160 Q485 118 555 84 Q590 66 610 92 Q645 160 600 310 Q650 410 560 485 Q470 545 375 545 Q280 545 190 485 Q100 410 150 310 Z\"/><path d=\"M182 168 Q205 152 262 190 Q226 218 190 246 Q168 206 182 168 Z\"/><path d=\"M568 168 Q545 152 488 190 Q524 218 560 246 Q582 206 568 168 Z\"/><ellipse cx=\"285\" cy=\"335\" rx=\"40\" ry=\"52\"/><circle cx=\"296.2\" cy=\"319.4\" r=\"11.2\"/><ellipse cx=\"465\" cy=\"335\" rx=\"40\" ry=\"52\"/><circle cx=\"476.2\" cy=\"319.4\" r=\"11.2\"/><path d=\"M352 392 Q375 378 398 392 Q388 416 375 418 Q362 416 352 392 Z\"/><path d=\"M375 418 Q375 450 338 452\"/><path d=\"M375 418 Q375 450 412 452\"/><ellipse cx=\"210\" cy=\"410\" rx=\"30\" ry=\"19\"/><ellipse cx=\"540\" cy=\"410\" rx=\"30\" ry=\"19\"/><path d=\"M160 372 L84 350\"/><path d=\"M158 398 L78 402\"/><path d=\"M164 424 L92 456\"/><path d=\"M590 372 L666 350\"/><path d=\"M592 398 L672 402\"/><path d=\"M586 424 L658 456\"/><path d=\"M250 520 Q165 610 160 760 Q158 880 235 912 Q300 935 375 935 Q450 935 515 912 Q592 880 590 760 Q585 610 500 520\"/><path d=\"M337 935 Q335 885 342 862\"/><path d=\"M413 935 Q415 885 408 862\"/><ellipse cx=\"375\" cy=\"735\" rx=\"95\" ry=\"100\"/><path d=\"M585 855 Q722 872 706 722 Q698 650 650 660 Q672 722 598 778\"/><path d=\"M100 663.4 C58.4 637.4 76.6 608.8 100 630.9 C123.4 608.8 141.6 637.4 100 663.4 Z\"/><path d=\"M655 223.0 C623.0 203.0 637.0 181.0 655 198.0 C673.0 181.0 687.0 203.0 655 223.0 Z\"/><path d=\"M75.0 96.1 Q80.0 86.0 85.0 96.1 Q90.0 106.2 101.2 107.9 Q112.3 109.5 104.3 117.4 Q96.2 125.3 98.1 136.4 Q100.0 147.5 90.0 142.3 Q80.0 137.0 70.0 142.3 Q60.0 147.5 61.9 136.4 Q63.8 125.3 55.7 117.4 Q47.7 109.5 58.8 107.9 Q70.0 106.2 75.0 96.1 Z\"/><path d=\"M665.6 878.9 Q670.0 870.0 674.4 878.9 Q678.8 887.9 688.7 889.3 Q698.5 890.7 691.4 897.7 Q684.3 904.6 685.9 914.5 Q687.6 924.3 678.8 919.6 Q670.0 915.0 661.2 919.6 Q652.4 924.3 654.1 914.5 Q655.7 904.6 648.6 897.7 Q641.5 890.7 651.3 889.3 Q661.2 887.9 665.6 878.9 Z\"/><path d=\"M120 858 Q120 880 142 880 Q120 880 120 902 Q120 880 98 880 Q120 880 120 858 Z\"/><path d=\"M640 42 Q640 60 658 60 Q640 60 640 78 Q640 60 622 60 Q640 60 640 42 Z\"/>" },
+    { name: "Robot", body: "<path d=\"M375 118 L375 66\"/><circle cx=\"375\" cy=\"44\" r=\"24\"/><rect x=\"180\" y=\"118\" width=\"390\" height=\"280\" rx=\"95\"/><rect x=\"142\" y=\"220\" width=\"38\" height=\"86\" rx=\"19\"/><rect x=\"570\" y=\"220\" width=\"38\" height=\"86\" rx=\"19\"/><rect x=\"225\" y=\"165\" width=\"300\" height=\"190\" rx=\"70\"/><ellipse cx=\"310\" cy=\"250\" rx=\"36\" ry=\"40\"/><circle cx=\"320.1\" cy=\"238.0\" r=\"10.1\"/><ellipse cx=\"440\" cy=\"250\" rx=\"36\" ry=\"40\"/><circle cx=\"450.1\" cy=\"238.0\" r=\"10.1\"/><path d=\"M330 312 Q375 345 420 312\"/><ellipse cx=\"262\" cy=\"318\" rx=\"20\" ry=\"12\"/><ellipse cx=\"488\" cy=\"318\" rx=\"20\" ry=\"12\"/><rect x=\"335\" y=\"398\" width=\"80\" height=\"34\" rx=\"12\"/><rect x=\"200\" y=\"432\" width=\"350\" height=\"330\" rx=\"100\"/><path d=\"M375 600.8 C275.8 538.8 319.2 470.6 375 523.3 C430.8 470.6 474.2 538.8 375 600.8 Z\"/><circle cx=\"290\" cy=\"680\" r=\"24\"/><circle cx=\"375\" cy=\"680\" r=\"24\"/><circle cx=\"460\" cy=\"680\" r=\"24\"/><rect x=\"105\" y=\"460\" width=\"78\" height=\"215\" rx=\"39\"/><g transform=\"rotate(-38 590 480)\"><rect x=\"560\" y=\"440\" width=\"78\" height=\"215\" rx=\"39\"/></g><rect x=\"262\" y=\"762\" width=\"78\" height=\"92\" rx=\"20\"/><rect x=\"410\" y=\"762\" width=\"78\" height=\"92\" rx=\"20\"/><path d=\"M205 928 Q205 862 272 862 L318 862 Q352 862 352 895 L352 928 Z\"/><path d=\"M545 928 Q545 862 478 862 L432 862 Q398 862 398 895 L398 928 Z\"/><path d=\"M90.0 106.1 Q95.0 96.0 100.0 106.1 Q105.0 116.2 116.2 117.9 Q127.3 119.5 119.3 127.4 Q111.2 135.3 113.1 146.4 Q115.0 157.5 105.0 152.3 Q95.0 147.0 85.0 152.3 Q75.0 157.5 76.9 146.4 Q78.8 135.3 70.7 127.4 Q62.7 119.5 73.8 117.9 Q85.0 116.2 90.0 106.1 Z\"/><path d=\"M651.2 71.7 Q655.0 64.0 658.8 71.7 Q662.6 79.5 671.2 80.7 Q679.7 82.0 673.5 88.0 Q667.4 94.0 668.8 102.5 Q670.3 111.0 662.6 107.0 Q655.0 103.0 647.4 107.0 Q639.7 111.0 641.2 102.5 Q642.6 94.0 636.5 88.0 Q630.3 82.0 638.8 80.7 Q647.4 79.5 651.2 71.7 Z\"/><path d=\"M640 861.6 C601.6 837.6 618.4 811.2 640 831.6 C661.6 811.2 678.4 837.6 640 861.6 Z\"/><path d=\"M110 836 Q110 860 134 860 Q110 860 110 884 Q110 860 86 860 Q110 860 110 836 Z\"/><path d=\"M690 314 Q690 330 706 330 Q690 330 690 346 Q690 330 674 330 Q690 330 690 314 Z\"/>" },
+    { name: "Airplane", body: "<g transform=\"rotate(-9 375 420)\"><path d=\"M105 385 Q92 300 190 290 L480 290 Q650 285 700 385 Q650 480 480 480 L200 480 Q118 480 105 385 Z\"/><path d=\"M150 292 L88 172 Q82 152 108 152 L185 152 Q208 152 218 182 L268 290\"/><path d=\"M320 478 L238 660 Q228 690 262 690 L345 690 Q372 690 388 662 L500 480\"/><ellipse cx=\"718\" cy=\"385\" rx=\"17\" ry=\"92\"/><ellipse cx=\"535\" cy=\"372\" rx=\"34\" ry=\"38\"/><circle cx=\"544.5\" cy=\"360.6\" r=\"9.5\"/><ellipse cx=\"615\" cy=\"372\" rx=\"34\" ry=\"38\"/><circle cx=\"624.5\" cy=\"360.6\" r=\"9.5\"/><path d=\"M545 438 Q578 462 612 438\"/><ellipse cx=\"478\" cy=\"425\" rx=\"22\" ry=\"13\"/><circle cx=\"225\" cy=\"385\" r=\"30\"/><circle cx=\"318\" cy=\"385\" r=\"30\"/><circle cx=\"411\" cy=\"385\" r=\"30\"/><path d=\"M118 445 Q300 462 470 445\"/></g><g transform=\"translate(40 70) scale(0.9)\"><path d=\"M20 70 Q-15 70 -15 38 Q-15 8 22 6 Q28 -30 72 -28 Q98 -52 132 -26 Q172 -22 172 22 Q172 70 130 70 Z\"/></g><g transform=\"translate(520 790) scale(1.0)\"><path d=\"M20 70 Q-15 70 -15 38 Q-15 8 22 6 Q28 -30 72 -28 Q98 -52 132 -26 Q172 -22 172 22 Q172 70 130 70 Z\"/></g><g transform=\"translate(30 790) scale(0.75)\"><path d=\"M20 70 Q-15 70 -15 38 Q-15 8 22 6 Q28 -30 72 -28 Q98 -52 132 -26 Q172 -22 172 22 Q172 70 130 70 Z\"/></g><circle cx=\"640\" cy=\"120\" r=\"46\"/><path d=\"M710.0 120.0 L734.0 120.0\"/><path d=\"M689.5 169.5 L706.5 186.5\"/><path d=\"M640.0 190.0 L640.0 214.0\"/><path d=\"M590.5 169.5 L573.5 186.5\"/><path d=\"M570.0 120.0 L546.0 120.0\"/><path d=\"M590.5 70.5 L573.5 53.5\"/><path d=\"M640.0 50.0 L640.0 26.0\"/><path d=\"M689.5 70.5 L706.5 53.5\"/><path d=\"M115.9 600.3 Q120.0 592.0 124.1 600.3 Q128.2 608.7 137.4 610.0 Q146.6 611.3 140.0 617.8 Q133.3 624.3 134.9 633.5 Q136.5 642.7 128.2 638.3 Q120.0 634.0 111.8 638.3 Q103.5 642.7 105.1 633.5 Q106.7 624.3 100.0 617.8 Q93.4 611.3 102.6 610.0 Q111.8 608.7 115.9 600.3 Z\"/><path d=\"M660 669.8 C624.8 647.8 640.2 623.6 660 642.3 C679.8 623.6 695.2 647.8 660 669.8 Z\"/><path d=\"M380 110 Q380 130 400 130 Q380 130 380 150 Q380 130 360 130 Q380 130 380 110 Z\"/><path d=\"M560 604 Q560 620 576 620 Q560 620 560 636 Q560 620 544 620 Q560 620 560 604 Z\"/>" },
+    { name: "Fire truck", body: "<g transform=\"translate(0 130)\"><path d=\"M60 445 Q60 400 105 400 L440 400 L440 372 Q440 350 462 350 L582 350 Q632 350 657 396 L702 482 Q717 512 717 562 L717 600 Q717 620 697 620 L655 620 A68 68 0 0 0 519 620 L258 620 A68 68 0 0 0 122 620 L88 620 Q60 620 60 595 Z\"/><path d=\"M478 376 L572 376 Q606 376 624 412 L648 462 L478 462 Z\"/><ellipse cx=\"520\" cy=\"418\" rx=\"14\" ry=\"16\"/><circle cx=\"523.9\" cy=\"413.2\" r=\"3.9\"/><ellipse cx=\"576\" cy=\"418\" rx=\"14\" ry=\"16\"/><circle cx=\"579.9\" cy=\"413.2\" r=\"3.9\"/><path d=\"M530 440 Q548 452 566 440\"/><rect x=\"78\" y=\"326\" width=\"345\" height=\"48\" rx=\"14\"/><path d=\"M130 326 L130 374\"/><path d=\"M182 326 L182 374\"/><path d=\"M234 326 L234 374\"/><path d=\"M286 326 L286 374\"/><path d=\"M338 326 L338 374\"/><path d=\"M390 326 L390 374\"/><path d=\"M120 374 L120 400\"/><path d=\"M380 374 L380 400\"/><rect x=\"518\" y=\"300\" width=\"72\" height=\"50\" rx=\"22\"/><path d=\"M554 280 L554 262\"/><path d=\"M520 288 L504 274\"/><path d=\"M588 288 L604 274\"/><circle cx=\"165\" cy=\"490\" r=\"52\"/><circle cx=\"165\" cy=\"490\" r=\"20\"/><rect x=\"250\" y=\"432\" width=\"165\" height=\"110\" rx=\"22\"/><path d=\"M327.3 464.5 Q332.0 455.0 336.7 464.5 Q341.4 474.1 351.9 475.6 Q362.4 477.1 354.8 484.5 Q347.2 491.9 349.0 502.4 Q350.8 512.9 341.4 507.9 Q332.0 503.0 322.6 507.9 Q313.2 512.9 315.0 502.4 Q316.8 491.9 309.2 484.5 Q301.6 477.1 312.1 475.6 Q322.6 474.1 327.3 464.5 Z\"/><circle cx=\"190\" cy=\"620\" r=\"52\"/><circle cx=\"190\" cy=\"620\" r=\"20\"/><circle cx=\"587\" cy=\"620\" r=\"52\"/><circle cx=\"587\" cy=\"620\" r=\"20\"/><circle cx=\"697\" cy=\"535\" r=\"14\"/></g><path d=\"M0 802 L750 802\"/><path d=\"M30 890 L130 890\"/><path d=\"M250 890 L350 890\"/><path d=\"M470 890 L570 890\"/><path d=\"M690 890 L750 890\"/><g transform=\"translate(60 90) scale(1.0)\"><path d=\"M20 70 Q-15 70 -15 38 Q-15 8 22 6 Q28 -30 72 -28 Q98 -52 132 -26 Q172 -22 172 22 Q172 70 130 70 Z\"/></g><g transform=\"translate(470 190) scale(0.85)\"><path d=\"M20 70 Q-15 70 -15 38 Q-15 8 22 6 Q28 -30 72 -28 Q98 -52 132 -26 Q172 -22 172 22 Q172 70 130 70 Z\"/></g><circle cx=\"650\" cy=\"90\" r=\"46\"/><path d=\"M720.0 90.0 L742.0 90.0\"/><path d=\"M699.5 139.5 L715.1 155.1\"/><path d=\"M650.0 160.0 L650.0 182.0\"/><path d=\"M600.5 139.5 L584.9 155.1\"/><path d=\"M580.0 90.0 L558.0 90.0\"/><path d=\"M600.5 40.5 L584.9 24.9\"/><path d=\"M650.0 20.0 L650.0 -2.0\"/><path d=\"M699.5 40.5 L715.1 24.9\"/><path d=\"M95 974.8 C59.8 952.8 75.2 928.6 95 947.3 C114.8 928.6 130.2 952.8 95 974.8 Z\"/><path d=\"M656.2 936.7 Q660.0 929.0 663.8 936.7 Q667.6 944.5 676.2 945.7 Q684.7 947.0 678.5 953.0 Q672.4 959.0 673.8 967.5 Q675.3 976.0 667.6 972.0 Q660.0 968.0 652.4 972.0 Q644.7 976.0 646.2 967.5 Q647.6 959.0 641.5 953.0 Q635.3 947.0 643.8 945.7 Q652.4 944.5 656.2 936.7 Z\"/><path d=\"M380 70 Q380 90 400 90 Q380 90 380 110 Q380 90 360 90 Q380 90 380 70 Z\"/><path d=\"M110 282 Q110 300 128 300 Q110 300 110 318 Q110 300 92 300 Q110 300 110 282 Z\"/><path d=\"M250 216 Q250 230 264 230 Q250 230 250 244 Q250 230 236 230 Q250 230 250 216 Z\"/>" },
+    { name: "Fish", body: "<path d=\"M150 480 C150 300 330 255 460 290 C560 318 612 400 612 480 C612 560 560 645 450 672 C320 705 150 660 150 480 Z\"/><path d=\"M602 425 L722 332 Q748 322 748 352 L740 480 L748 608 Q748 638 722 628 L602 535\"/><path d=\"M345 272 Q362 172 440 160 Q480 205 458 292\"/><path d=\"M335 685 Q352 785 430 798 Q470 750 452 664\"/><circle cx=\"262\" cy=\"435\" r=\"58\"/><circle cx=\"270\" cy=\"440\" r=\"28\"/><circle cx=\"281\" cy=\"428\" r=\"9\"/><path d=\"M182 520 Q225 568 290 538\"/><path d=\"M345 372 Q315 480 350 590\"/><path d=\"M440 390 Q482 415 440 445\"/><path d=\"M515 410 Q555 438 515 468\"/><path d=\"M440 480 Q482 505 440 535\"/><path d=\"M515 505 Q552 530 515 560\"/><path d=\"M640 480 L735 480\"/><circle cx=\"90\" cy=\"320\" r=\"26\"/><circle cx=\"60\" cy=\"235\" r=\"17\"/><circle cx=\"105\" cy=\"170\" r=\"11\"/><circle cx=\"640\" cy=\"170\" r=\"20\"/><circle cx=\"680\" cy=\"110\" r=\"12\"/><path d=\"M0 905 Q60 875 120 905 T240 905 T360 905 T480 905 T600 905 T720 905 T840 905\"/><path d=\"M90 905 Q60 830 100 780 Q130 740 95 690\"/><path d=\"M130 905 Q160 850 130 800\"/><path d=\"M630 905 Q600 830 640 780 Q670 740 640 690\"/><path d=\"M670 905 Q700 850 670 810\"/><path d=\"M371.2 941.7 Q375.0 934.0 378.8 941.7 Q382.6 949.5 391.2 950.7 Q399.7 952.0 393.5 958.0 Q387.4 964.0 388.8 972.5 Q390.3 981.0 382.6 977.0 Q375.0 973.0 367.4 977.0 Q359.7 981.0 361.2 972.5 Q362.6 964.0 356.5 958.0 Q350.3 952.0 358.8 950.7 Q367.4 949.5 371.2 941.7 Z\"/><path d=\"M380 878.0 C348.0 858.0 362.0 836.0 380 853.0 C398.0 836.0 412.0 858.0 380 878.0 Z\"/><path d=\"M530 100 Q530 120 550 120 Q530 120 530 140 Q530 120 510 120 Q530 120 530 100 Z\"/>" },
+    { name: "Rocket", body: "<path d=\"M375 90 C505 190 545 340 545 520 L545 700 L205 700 L205 520 C205 340 245 190 375 90 Z\"/><path d=\"M283 205 Q375 245 467 205\"/><circle cx=\"375\" cy=\"345\" r=\"78\"/><circle cx=\"375\" cy=\"345\" r=\"52\"/><ellipse cx=\"325\" cy=\"520\" rx=\"28\" ry=\"34\"/><circle cx=\"332.8\" cy=\"509.8\" r=\"7.8\"/><ellipse cx=\"425\" cy=\"520\" rx=\"28\" ry=\"34\"/><circle cx=\"432.8\" cy=\"509.8\" r=\"7.8\"/><path d=\"M345 580 Q375 612 405 580\"/><ellipse cx=\"270\" cy=\"570\" rx=\"26\" ry=\"16\"/><ellipse cx=\"480\" cy=\"570\" rx=\"26\" ry=\"16\"/><path d=\"M206 560 Q85 590 80 765 Q145 775 206 690\"/><path d=\"M544 560 Q665 590 670 765 Q605 775 544 690\"/><path d=\"M285 700 L298 752 L452 752 L465 700\"/><path d=\"M300 762 Q312 880 375 945 Q438 880 450 762\"/><path d=\"M335 770 Q352 850 375 885 Q398 850 415 770\"/><circle cx=\"640\" cy=\"170\" r=\"48\"/><ellipse cx=\"640\" cy=\"170\" rx=\"86\" ry=\"20\" transform=\"rotate(-20 640 170)\"/><path d=\"M104.7 124.7 Q110.0 114.0 115.3 124.7 Q120.6 135.4 132.4 137.2 Q144.2 138.9 135.7 147.2 Q127.1 155.6 129.1 167.3 Q131.2 179.1 120.6 173.6 Q110.0 168.0 99.4 173.6 Q88.8 179.1 90.9 167.3 Q92.9 155.6 84.3 147.2 Q75.8 138.9 87.6 137.2 Q99.4 135.4 104.7 124.7 Z\"/><path d=\"M96.5 403.1 Q100.0 396.0 103.5 403.1 Q107.1 410.3 114.9 411.4 Q122.8 412.6 117.1 418.1 Q111.4 423.7 112.8 431.6 Q114.1 439.4 107.1 435.7 Q100.0 432.0 92.9 435.7 Q85.9 439.4 87.2 431.6 Q88.6 423.7 82.9 418.1 Q77.2 412.6 85.1 411.4 Q92.9 410.3 96.5 403.1 Z\"/><path d=\"M676.2 381.7 Q680.0 374.0 683.8 381.7 Q687.6 389.5 696.2 390.7 Q704.7 392.0 698.5 398.0 Q692.4 404.0 693.8 412.5 Q695.3 421.0 687.6 417.0 Q680.0 413.0 672.4 417.0 Q664.7 421.0 666.2 412.5 Q667.6 404.0 661.5 398.0 Q655.3 392.0 663.8 390.7 Q672.4 389.5 676.2 381.7 Z\"/><path d=\"M640 919.8 C604.8 897.8 620.2 873.6 640 892.3 C659.8 873.6 675.2 897.8 640 919.8 Z\"/><path d=\"M105.9 860.3 Q110.0 852.0 114.1 860.3 Q118.2 868.7 127.4 870.0 Q136.6 871.3 130.0 877.8 Q123.3 884.3 124.9 893.5 Q126.5 902.7 118.2 898.3 Q110.0 894.0 101.8 898.3 Q93.5 902.7 95.1 893.5 Q96.7 884.3 90.0 877.8 Q83.4 871.3 92.6 870.0 Q101.8 868.7 105.9 860.3 Z\"/><path d=\"M560 40 Q560 60 580 60 Q560 60 560 80 Q560 60 540 60 Q560 60 560 40 Z\"/><path d=\"M250 76 Q250 90 264 90 Q250 90 250 104 Q250 90 236 90 Q250 90 250 76 Z\"/>" }
+  ];
+
+  function svgMarkup(p, stroke, sw, opacity, w, h) {
+    return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 750 1000"' +
+      (w ? ' width="' + w + '" height="' + h + '"' : '') + '>' +
+      '<g fill="none" stroke="' + stroke + '" stroke-width="' + sw +
+      '" stroke-linecap="round" stroke-linejoin="round" opacity="' + opacity + '">' + p.body + '</g></svg>';
+  }
+
+  /* ---------- colors ---------- */
+  var COLORS = [
+    { name: "Red",    hex: "#F0443F" },
+    { name: "Orange", hex: "#FF9A2E" },
+    { name: "Yellow", hex: "#FFD93B" },
+    { name: "Green",  hex: "#4CC35B" },
+    { name: "Blue",   hex: "#3F8EF0" },
+    { name: "Purple", hex: "#9B5DE5" },
+    { name: "Brown",  hex: "#8B5A33" },
+    { name: "Black",  hex: "#2E2B28" }
+  ];
+
+  /* ---------- setup ---------- */
+  var SIZE = 900, SIZE_H = 1200;
+  var MIN_W = 28, MAX_W = 110, ERASE_W = 100;
+  var PAPER = "#FAF7F0";
+
+  var paint = document.getElementById("paint");
+  var outline = document.getElementById("outline");
+  var pctx = paint.getContext("2d");
+  var octx = outline.getContext("2d");
+  var picsEl = document.getElementById("pics");
+  var colorsEl = document.getElementById("colors");
+  var eraserBtn = document.getElementById("eraser");
+  var saveBtn = document.getElementById("save");
+  var clearBtn = document.getElementById("clear");
+
+  var current = 0;
+  var color = COLORS[0].hex;
+  var tool = "brush";
+  var stored = [];
+  var picBtns = [], swatchBtns = [];
+
+  PICTURES.forEach(function (p, i) {
+    var b = document.createElement("button");
+    b.className = "pic";
+    b.setAttribute("aria-label", p.name);
+    b.setAttribute("aria-pressed", "false");
+    b.innerHTML = svgMarkup(p, "#A8A092", 26, 1);
+    b.addEventListener("click", function () { switchTo(i); });
+    picsEl.appendChild(b);
+    picBtns.push(b);
+  });
+
+  COLORS.forEach(function (c, i) {
+    var b = document.createElement("button");
+    b.className = "swatch";
+    b.style.setProperty("--col", c.hex);
+    b.setAttribute("aria-label", c.name);
+    b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", function () {
+      color = c.hex;
+      tool = "brush";
+      refreshTools();
+    });
+    colorsEl.appendChild(b);
+    swatchBtns.push(b);
+  });
+
+  function refreshTools() {
+    swatchBtns.forEach(function (b, i) {
+      b.setAttribute("aria-pressed", tool === "brush" && COLORS[i].hex === color ? "true" : "false");
+    });
+    eraserBtn.setAttribute("aria-pressed", tool === "eraser" ? "true" : "false");
+  }
+  eraserBtn.addEventListener("click", function () {
+    tool = tool === "eraser" ? "brush" : "eraser";
+    refreshTools();
+  });
+
+  /* ---------- outline + switching pictures ---------- */
+  var imgCache = {};
+  function renderOutline(i) {
+    octx.clearRect(0, 0, SIZE, SIZE_H);
+    var draw = function (img) {
+      if (i !== current) return;
+      octx.clearRect(0, 0, SIZE, SIZE_H);
+      octx.drawImage(img, 0, 0, SIZE, SIZE_H);
+    };
+    if (imgCache[i]) { draw(imgCache[i]); return; }
+    var img = new Image();
+    img.onload = function () { imgCache[i] = img; draw(img); };
+    var svg = svgMarkup(PICTURES[i], "#6E665A", 9, 0.28, SIZE, SIZE_H);
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+
+  function switchTo(i) {
+    if (i === current) return;
+    endStroke();
+    var s = stored[current];
+    if (!s) {
+      s = document.createElement("canvas");
+      s.width = SIZE; s.height = SIZE_H;
+      stored[current] = s;
+    }
+    var sctx = s.getContext("2d");
+    sctx.clearRect(0, 0, SIZE, SIZE_H);
+    sctx.drawImage(paint, 0, 0);
+
+    pctx.clearRect(0, 0, SIZE, SIZE_H);
+    if (stored[i]) pctx.drawImage(stored[i], 0, 0);
+
+    current = i;
+    picBtns.forEach(function (b, k) { b.setAttribute("aria-pressed", k === i ? "true" : "false"); });
+    renderOutline(i);
+    resetClear();
+  }
+
+  /* ---------- drawing ---------- */
+  var activeId = null;
+  var stroke = null;
+  var raf = 0;
+
+  function pos(e) {
+    var r = paint.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * SIZE / r.width, y: (e.clientY - r.top) * SIZE_H / r.height };
+  }
+
+  function beginCtx() {
+    pctx.lineCap = "round";
+    pctx.lineJoin = "round";
+    if (tool === "eraser") {
+      pctx.globalCompositeOperation = "destination-out";
+      pctx.strokeStyle = "#000";
+      pctx.fillStyle = "#000";
+    } else {
+      pctx.globalCompositeOperation = "source-over";
+      pctx.strokeStyle = color;
+      pctx.fillStyle = color;
+    }
+  }
+
+  function seg(a, b, w) {
+    pctx.lineWidth = w;
+    var dx = b.x - a.x, dy = b.y - a.y;
+    if (dx * dx + dy * dy < 0.25) {
+      pctx.beginPath();
+      pctx.arc(b.x, b.y, w / 2, 0, Math.PI * 2);
+      pctx.fill();
+    } else {
+      pctx.beginPath();
+      pctx.moveTo(a.x, a.y);
+      pctx.lineTo(b.x, b.y);
+      pctx.stroke();
+    }
+  }
+
+  function clamp01(v) { return Math.max(0, Math.min(1, v)); }
+
+  function frame(now) {
+    if (!stroke) return;
+    var w;
+    if (tool === "eraser") {
+      w = ERASE_W;
+    } else {
+      var t = clamp01((now - stroke.t0) / 1500);
+      var dur = 1 - (1 - t) * (1 - t);
+      var f = dur;
+      var meaningful = stroke.pen || (stroke.pMax - stroke.pMin) > 0.08;
+      if (meaningful) f = Math.max(clamp01((stroke.p - 0.12) / 0.7), dur * 0.6);
+      var target = MIN_W + (MAX_W - MIN_W) * f;
+      stroke.w += (target - stroke.w) * 0.18;
+      w = stroke.w;
+    }
+    beginCtx();
+    if (stroke.queue.length) {
+      for (var i = 0; i < stroke.queue.length; i++) {
+        var p = stroke.queue[i];
+        seg(stroke.last, p, w);
+        stroke.last = p;
+      }
+      stroke.queue.length = 0;
+    } else {
+      seg(stroke.last, stroke.last, w);
+    }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function endStroke() {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    stroke = null;
+    activeId = null;
+  }
+
+  paint.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    if (activeId !== null) return;
+    activeId = e.pointerId;
+    try { paint.setPointerCapture(e.pointerId); } catch (err) {}
+    var p = pos(e);
+    var pr = e.pressure || 0;
+    stroke = {
+      t0: performance.now(),
+      last: p,
+      queue: [p],
+      w: MIN_W,
+      p: pr,
+      pMin: pr,
+      pMax: pr,
+      pen: e.pointerType === "pen"
+    };
+    resetClear();
+    raf = requestAnimationFrame(frame);
+  });
+
+  paint.addEventListener("pointermove", function (e) {
+    if (!stroke || e.pointerId !== activeId) return;
+    e.preventDefault();
+    var evs = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+    if (!evs || !evs.length) evs = [e];
+    for (var i = 0; i < evs.length; i++) stroke.queue.push(pos(evs[i]));
+    var pr = e.pressure || 0;
+    stroke.p = pr;
+    if (pr < stroke.pMin) stroke.pMin = pr;
+    if (pr > stroke.pMax) stroke.pMax = pr;
+  });
+
+  function up(e) {
+    if (e.pointerId !== activeId) return;
+    endStroke();
+  }
+  paint.addEventListener("pointerup", up);
+  paint.addEventListener("pointercancel", up);
+  paint.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  /* ---------- start over (tap twice) ---------- */
+  var sureTimer = 0;
+  function resetClear() {
+    clearTimeout(sureTimer);
+    clearBtn.classList.remove("sure");
+  }
+  clearBtn.addEventListener("click", function () {
+    if (clearBtn.classList.contains("sure")) {
+      resetClear();
+      pctx.globalCompositeOperation = "source-over";
+      pctx.clearRect(0, 0, SIZE, SIZE_H);
+      if (stored[current]) stored[current].getContext("2d").clearRect(0, 0, SIZE, SIZE_H);
+      return;
+    }
+    clearBtn.classList.add("sure");
+    sureTimer = setTimeout(resetClear, 2500);
+  });
+
+  /* ---------- save ---------- */
+  var flashEl = document.getElementById("flash");
+  var toastEl = document.getElementById("toast");
+  var sheet = document.getElementById("sheet");
+  var sheetImg = document.getElementById("sheetImg");
+  var toastTimer = 0;
+
+  function toast() {
+    toastEl.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove("show"); }, 1800);
+  }
+
+  document.getElementById("sheetClose").addEventListener("click", function () {
+    sheet.classList.remove("open");
+    if (sheetImg.src) URL.revokeObjectURL(sheetImg.src);
+  });
+
+  saveBtn.addEventListener("click", async function () {
+    var out = document.createElement("canvas");
+    out.width = SIZE; out.height = SIZE_H;
+    var c = out.getContext("2d");
+    c.fillStyle = PAPER;
+    c.fillRect(0, 0, SIZE, SIZE_H);
+    c.drawImage(paint, 0, 0);
+    c.drawImage(outline, 0, 0);
+    var blob = await new Promise(function (r) { out.toBlob(r, "image/png"); });
+    if (!blob) return;
+
+    flashEl.classList.remove("go");
+    void flashEl.offsetWidth;
+    flashEl.classList.add("go");
+
+    var filename = "my-" + PICTURES[current].name.toLowerCase().replace(/\s+/g, "-") + "-coloring.png";
+
+    var dl = null;
+    try { dl = window.claude && await window.claude.use("downloads"); } catch (err) { dl = null; }
+    if (dl) {
+      try {
+        await dl.save({ filename: filename, data: blob });
+        toast();
+        return;
+      } catch (err) {
+        if (err && err.code === "declined") return;
+      }
+    }
+
+    try {
+      var file = new File([blob], filename, { type: "image/png" });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] });
+        return;
+      }
+    } catch (err) {
+      if (err && err.name === "AbortError") return;
+    }
+
+    sheetImg.src = URL.createObjectURL(blob);
+    sheet.classList.add("open");
+  });
+
+  /* ---------- go ---------- */
+  picBtns[0].setAttribute("aria-pressed", "true");
+  stored.length = 0;
+  renderOutline(0);
+  stored[0] = null;
+})();
+</script>
+</body>
+</html>
